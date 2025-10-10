@@ -19,6 +19,11 @@ builder.Services.AddHttpClient<IOpenAIService, OllamaService>(client =>
 
 builder.Services.AddScoped<IChatService, ChatService>();
 
+builder.Services.AddSingleton<IConversationMemoryService, ConversationMemoryService>();
+builder.Services.AddSingleton<PersonalityService>();
+builder.Services.AddSingleton<IConversationMemoryService, ConversationMemoryService>();
+
+
 // Controllers + Swagger + CORS
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
