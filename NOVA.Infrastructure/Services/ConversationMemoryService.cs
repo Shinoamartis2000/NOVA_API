@@ -1,48 +1,35 @@
-﻿using LiteDB;
-using NOVA.Application.Interfaces;
+﻿using NOVA.Application.Interfaces;
 using NOVA.Core.Models;
+using System.Collections.Concurrent;
 
 namespace NOVA.Infrastructure.Services
 {
     public class ConversationMemoryService : IConversationMemoryService
     {
-        private readonly string _dbPath = Path.Combine(AppContext.BaseDirectory, "Data", "NOVA_Memory.db");
-
-        public ConversationMemoryService()
-        {
-            var dir = Path.GetDirectoryName(_dbPath);
-            if (!Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-        }
+        // Thread-safe dictionary for session storage
+        private readonly ConcurrentDictionary<string, List<ChatMessage>> _sessions = new();
 
         public void AddMessage(string sessionId, string role, string content)
         {
-            using var db = new LiteDatabase(_dbPath);
-            var col = db.GetCollection<MemoryMessage>(sessionId);
-            col.Insert(new MemoryMessage { Role = role, Content = content, Timestamp = DateTime.UtcNow });
+            var messages = _sessions.GetOrAdd(sessionId, _ => new List<ChatMessage>());
+            messages.Add(new ChatMessage
+            {
+                Role = role,
+                Content = content,
+                Timestamp = DateTime.UtcNow
+            });
         }
 
-        public List<MemoryMessage> GetMessages(string sessionId)
+        public IEnumerable<ChatMessage> GetMessages(string sessionId)
         {
-            using var db = new LiteDatabase(_dbPath);
-            var col = db.GetCollection<MemoryMessage>(sessionId);
-            return col.FindAll().OrderBy(m => m.Timestamp).ToList();
-        }
-
-        public void ClearSession(string sessionId)
-        {
-            using var db = new LiteDatabase(_dbPath);
-            db.DropCollection(sessionId);
-        }
-
-        List<(string Role, string Content)> IConversationMemoryService.GetMessages(string sessionId)
-        {
-            throw new NotImplementedException();
+            return _sessions.TryGetValue(sessionId, out var messages)
+                ? messages
+                : Enumerable.Empty<ChatMessage>();
         }
 
         public void ClearMemory(string sessionId)
         {
-            throw new NotImplementedException();
+            _sessions.TryRemove(sessionId, out _);
         }
     }
 }

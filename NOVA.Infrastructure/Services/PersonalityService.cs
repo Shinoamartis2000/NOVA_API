@@ -42,8 +42,12 @@ namespace NOVA.Infrastructure.Services
 
         public string GetSystemPrompt()
         {
+            var traits = !string.IsNullOrWhiteSpace(Personality.Traits)
+                ? Personality.Traits
+                : "adaptive, logical, and emotionally intelligent";
+
             return $"You are {Personality.Name}, a {Personality.Tone} AI assistant. " +
-                   $"Your core traits: {string.Join(", ", Personality.Traits ?? new List<string>())}. " +
+                   $"Your core traits include: {traits}. " +
                    $"Description: {Personality.Description}";
         }
     }
