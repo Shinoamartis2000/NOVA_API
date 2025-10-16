@@ -1,61 +1,56 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using NOVA.Application.Interfaces;
+using NOVA.Application.Services;
 using NOVA.Infrastructure.Config;
 using NOVA.Infrastructure.Data;
 using NOVA.Infrastructure.Services;
-using NOVA.Application.Interfaces;
+using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ? Load configuration
 builder.Services.Configure<OpenAIConfig>(builder.Configuration.GetSection("OpenAI"));
+var openAiConfig = builder.Configuration.GetSection("OpenAI").Get<OpenAIConfig>();
+builder.Services.AddSingleton(openAiConfig);
 
-// ? Register SQLite database
+// ? Register Database
 builder.Services.AddDbContext<NovaDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ? Register Core Services
+// ? Core services
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<IConversationMemoryService, ConversationMemoryService>();
+builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<PersonalityService>(); // ?? FIX #1
 
-// ? Choose your AI backend (Ollama / OpenAI / OpenRouter)
+// ? AI backend
 builder.Services.AddHttpClient<IOpenAIService, OllamaService>(client =>
 {
-    var config = builder.Configuration.GetSection("OpenAI").Get<OpenAIConfig>();
-    if (config != null && !string.IsNullOrEmpty(config.BaseUrl))
-    {
-        client.BaseAddress = new Uri(config.BaseUrl);
-    }
+    if (!string.IsNullOrEmpty(openAiConfig.BaseUrl))
+        client.BaseAddress = new Uri(openAiConfig.BaseUrl);
 });
 
-// ? Add Controllers
+// ? Controllers, Swagger, CORS, etc.
 builder.Services.AddControllers();
-
-// ? Enable CORS (for front-end or local testing)
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
-});
-
-// ? Swagger (for easy API testing)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+});
+
 var app = builder.Build();
 
-// ? Apply migrations automatically (optional)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NovaDbContext>();
     db.Database.Migrate();
 }
 
-// ? Configure middleware
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -66,5 +61,4 @@ app.UseCors("AllowAll");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
-
 app.Run();

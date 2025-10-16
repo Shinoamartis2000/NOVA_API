@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using NOVA.Application.Interfaces;
 using NOVA.Core.Models;
 using NOVA.Infrastructure.Config;
@@ -12,23 +13,23 @@ namespace NOVA.Infrastructure.Services
         private readonly HttpClient _httpClient;
         private readonly OpenAIConfig _config;
 
-        public OllamaService(HttpClient httpClient, OpenAIConfig config, IConversationMemoryService memoryService)
+        public OllamaService(HttpClient httpClient, IOptions<OpenAIConfig> options, IConversationMemoryService memoryService)
         {
-            _config = config;
+            _config = options.Value ?? throw new ArgumentNullException(nameof(options));
             _httpClient = httpClient;
             _memoryService = memoryService;
-            _httpClient.BaseAddress = new Uri(_config.BaseUrl);
+
+            if (!string.IsNullOrEmpty(_config.BaseUrl))
+                _httpClient.BaseAddress = new Uri(_config.BaseUrl);
         }
 
         public async Task<ChatResponse> GenerateResponseAsync(ChatRequest request)
         {
             try
             {
-                // 🔹 Retrieve prior conversation context
                 var sessionId = request.SessionId ?? "default";
                 var history = _memoryService.GetMessages(sessionId);
 
-                // Build full conversation history (system + memory + current user message)
                 var messages = new List<object>
                 {
                     new { role = "system", content = "You are N.O.V.A, a futuristic, loyal, and highly intelligent AI assistant. Respond naturally and maintain continuity in context." }
@@ -37,7 +38,6 @@ namespace NOVA.Infrastructure.Services
                 messages.AddRange(history.Select(m => new { role = m.Role, content = m.Content }));
                 messages.Add(new { role = "user", content = request.Prompt });
 
-                // Prepare payload for Ollama API
                 var payload = new
                 {
                     model = _config.Model,
@@ -48,7 +48,6 @@ namespace NOVA.Infrastructure.Services
                 var json = JsonSerializer.Serialize(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                // ✅ Correct Ollama endpoint - no leading slash
                 var response = await _httpClient.PostAsync("api/chat", content);
                 var body = await response.Content.ReadAsStringAsync();
 
@@ -58,21 +57,15 @@ namespace NOVA.Infrastructure.Services
                 }
 
                 using var doc = JsonDocument.Parse(body);
-
-                // ✅ Correct response parsing for Ollama
                 string? reply = null;
+
                 if (doc.RootElement.TryGetProperty("message", out var msgElem))
-                {
                     reply = msgElem.GetProperty("content").GetString();
-                }
                 else
-                {
-                    reply = body; // fallback if structure differs
-                }
+                    reply = body;
 
                 var finalReply = reply ?? "N.O.V.A couldn't generate a response.";
 
-                // 🧠 Store this conversation into memory
                 _memoryService.AddMessage(sessionId, "user", request.Prompt);
                 _memoryService.AddMessage(sessionId, "assistant", finalReply);
 
