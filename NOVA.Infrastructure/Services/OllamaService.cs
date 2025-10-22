@@ -9,15 +9,13 @@ namespace NOVA.Infrastructure.Services
 {
     public class OllamaService : IOpenAIService
     {
-        private readonly IConversationMemoryService _memoryService;
         private readonly HttpClient _httpClient;
         private readonly OpenAIConfig _config;
 
-        public OllamaService(HttpClient httpClient, IOptions<OpenAIConfig> options, IConversationMemoryService memoryService)
+        public OllamaService(HttpClient httpClient, IOptions<OpenAIConfig> options)
         {
-            _config = options.Value ?? throw new ArgumentNullException(nameof(options));
+            _config = options.Value;
             _httpClient = httpClient;
-            _memoryService = memoryService;
 
             if (!string.IsNullOrEmpty(_config.BaseUrl))
                 _httpClient.BaseAddress = new Uri(_config.BaseUrl);
@@ -27,51 +25,41 @@ namespace NOVA.Infrastructure.Services
         {
             try
             {
-                var sessionId = request.SessionId ?? "default";
-                var history = _memoryService.GetMessages(sessionId);
-
-                var messages = new List<object>
-                {
-                    new { role = "system", content = "You are N.O.V.A, a futuristic, loyal, and highly intelligent AI assistant. Respond naturally and maintain continuity in context." }
-                };
-
-                messages.AddRange(history.Select(m => new { role = m.Role, content = m.Content }));
-                messages.Add(new { role = "user", content = request.Prompt });
+                // Check if streaming is requested
+                bool stream = request.Stream; // You'll need to add this property to ChatRequest
 
                 var payload = new
                 {
                     model = _config.Model,
-                    messages = messages,
-                    stream = false
+                    prompt = request.Prompt,
+                    stream = stream
                 };
 
                 var json = JsonSerializer.Serialize(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync("api/chat", content);
-                var body = await response.Content.ReadAsStringAsync();
+                var response = await _httpClient.PostAsync("api/generate", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    throw new Exception($"Ollama API Error ({response.StatusCode}): {body}. Make sure Ollama is running and model '{_config.Model}' is installed.");
+                    throw new Exception($"Ollama API Error: {await response.Content.ReadAsStringAsync()}");
                 }
 
+                if (stream)
+                {
+                    // For streaming, you'd need to handle the stream on the backend
+                    // and forward it to the frontend. This is a simplified version.
+                    var streamContent = await response.Content.ReadAsStreamAsync();
+                    // You'd need to implement proper streaming response handling here
+                }
+
+                var body = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(body);
-                string? reply = null;
-
-                if (doc.RootElement.TryGetProperty("message", out var msgElem))
-                    reply = msgElem.GetProperty("content").GetString();
-                else
-                    reply = body;
-
-                var finalReply = reply ?? "N.O.V.A couldn't generate a response.";
-
-                _memoryService.AddMessage(sessionId, "user", request.Prompt);
-                _memoryService.AddMessage(sessionId, "assistant", finalReply);
+                var reply = doc.RootElement.GetProperty("response").GetString();
 
                 return new ChatResponse
                 {
-                    Reply = finalReply,
+                    Reply = reply ?? "I'm here to help!",
                     Timestamp = DateTime.UtcNow
                 };
             }
@@ -79,7 +67,7 @@ namespace NOVA.Infrastructure.Services
             {
                 return new ChatResponse
                 {
-                    Reply = $"⚠️ N.O.V.A experienced a local AI issue: {ex.Message}",
+                    Reply = $"Sorry, I encountered an error: {ex.Message}",
                     Timestamp = DateTime.UtcNow
                 };
             }

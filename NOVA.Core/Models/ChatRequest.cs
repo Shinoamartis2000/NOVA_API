@@ -5,5 +5,6 @@
         public string Prompt { get; set; } = string.Empty;
         public string? Context { get; set; }
         public string? SessionId { get; set; }
+        public bool Stream { get; set; }
     }
 }

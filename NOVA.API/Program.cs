@@ -9,6 +9,12 @@ using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ? Configure logging FIRST - before any other services
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+
 // ? Load configuration
 builder.Services.Configure<OpenAIConfig>(builder.Configuration.GetSection("OpenAI"));
 var openAiConfig = builder.Configuration.GetSection("OpenAI").Get<OpenAIConfig>();
@@ -23,9 +29,9 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<IConversationMemoryService, ConversationMemoryService>();
 builder.Services.AddScoped<IChatService, ChatService>();
-builder.Services.AddScoped<PersonalityService>(); // ?? FIX #1
+builder.Services.AddScoped<PersonalityService>();
 
-// ? AI backend
+// ? AI backend - make sure to add ILogger parameter
 builder.Services.AddHttpClient<IOpenAIService, OllamaService>(client =>
 {
     if (!string.IsNullOrEmpty(openAiConfig.BaseUrl))
@@ -43,7 +49,7 @@ builder.Services.AddCors(options =>
         policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
 });
 
-var app = builder.Build();
+var app = builder.Build(); // ? Now build AFTER all configuration
 
 using (var scope = app.Services.CreateScope())
 {
