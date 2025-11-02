@@ -2,24 +2,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /source
 
-# Copy solution file
-COPY *.sln .
-
-# Copy all project files
-COPY NOVA.API/*.csproj ./NOVA.API/
-COPY NOVA.Application/*.csproj ./NOVA.Application/
-COPY NOVA.Core/*.csproj ./NOVA.Core/
-COPY NOVA.Infrastructure/*.csproj ./NOVA.Infrastructure/
-
-# Restore dependencies
-RUN dotnet restore
-
-# Copy everything else
+# Copy everything
 COPY . .
 
-# Build and publish
+# Restore and build from the main project
 WORKDIR /source/NOVA.API
-RUN dotnet publish -c Release -o /app --no-restore
+RUN dotnet restore
+RUN dotnet publish -c Release -o /app
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
@@ -43,3 +32,4 @@ ENV ASPNETCORE_URLS=http://+:$PORT
 EXPOSE 5000
 
 ENTRYPOINT ["dotnet", "NOVA.API.dll"]
+```
