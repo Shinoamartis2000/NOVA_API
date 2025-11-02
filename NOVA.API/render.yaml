@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: nova-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: master
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: DATABASE_URL
+        value: Data Source=/data/nova.db
+    disk:
+      name: nova-sqlite
+      mountPath: /data
+      sizeGB: 1
