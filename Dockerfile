@@ -32,4 +32,3 @@ ENV ASPNETCORE_URLS=http://+:$PORT
 EXPOSE 5000
 
 ENTRYPOINT ["dotnet", "NOVA.API.dll"]
-```
