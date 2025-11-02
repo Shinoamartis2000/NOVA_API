@@ -30,7 +30,7 @@ RUN apt-get update && \
     apt-get install -y sqlite3 libsqlite3-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Create data directory for persistent storage
+# Create data directory
 RUN mkdir -p /data && chmod 777 /data
 
 # Copy published app
@@ -42,6 +42,4 @@ ENV ASPNETCORE_URLS=http://+:$PORT
 
 EXPOSE 5000
 
-# Start the application
 ENTRYPOINT ["dotnet", "NOVA.API.dll"]
-```
