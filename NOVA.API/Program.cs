@@ -9,6 +9,10 @@ using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ? Configure Kestrel to use Render's PORT
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
 // ? Configure logging FIRST - before any other services
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -20,9 +24,18 @@ builder.Services.Configure<OpenAIConfig>(builder.Configuration.GetSection("OpenA
 var openAiConfig = builder.Configuration.GetSection("OpenAI").Get<OpenAIConfig>();
 builder.Services.AddSingleton(openAiConfig);
 
-// ? Register Database
+// ? Register Database with dynamic connection string for Render
+var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? builder.Configuration.GetConnectionString("DefaultConnection");
+
+// If using persistent disk on Render, use /data path
+if (connectionString?.Contains("Data Source=") == true && !connectionString.Contains("/data/"))
+{
+    connectionString = "Data Source=/data/nova.db";
+}
+
 builder.Services.AddDbContext<NovaDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlite(connectionString));
 
 // ? Core services
 builder.Services.AddScoped<IUserService, UserService>();
@@ -34,7 +47,7 @@ builder.Services.AddScoped<PersonalityService>();
 // ? AI backend - make sure to add ILogger parameter
 builder.Services.AddHttpClient<IOpenAIService, OllamaService>(client =>
 {
-    if (!string.IsNullOrEmpty(openAiConfig.BaseUrl))
+    if (!string.IsNullOrEmpty(openAiConfig?.BaseUrl))
         client.BaseAddress = new Uri(openAiConfig.BaseUrl);
 });
 
@@ -43,28 +56,56 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// ? Updated CORS for your frontend domain
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
-        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+    {
+        policy.WithOrigins(
+            "https://neuraloperationalvirtualassistant.com",
+            "http://localhost:3000", // For local testing
+            "http://localhost:5173"  // For Vite local testing
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials();
+    });
 });
 
-var app = builder.Build(); // ? Now build AFTER all configuration
+var app = builder.Build();
 
+// ? Database migration/creation
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<NovaDbContext>();
-    db.Database.Migrate();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<NovaDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+        logger.LogInformation("Ensuring database is created...");
+        db.Database.Migrate();
+        logger.LogInformation("Database ready!");
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while migrating the database.");
+    }
 }
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// ? Enable Swagger in production too (optional, but useful for testing)
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors("AllowAll");
-app.UseHttpsRedirection();
+
+// ? Remove HTTPS redirection for Render (Render handles SSL at edge)
+// app.UseHttpsRedirection();
+
 app.UseAuthorization();
 app.MapControllers();
+
+// ? Add a health check endpoint
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
 app.Run();
